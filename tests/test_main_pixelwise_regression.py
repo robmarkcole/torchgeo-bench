@@ -4,13 +4,14 @@ from pathlib import Path
 from unittest import mock
 
 import pandas as pd
+import pytest
 import torch
 from torch.utils.data import DataLoader, Dataset
 
 from tests.support.runner import _chainable_model_mock, _compose_cfg, _resume_row
 from torchgeo_bench.config.presets import merge_settings
 from torchgeo_bench.config.run import RunConfig
-from torchgeo_bench.main import main
+from torchgeo_bench.main import main, run_dense_task
 
 
 class _RegressionDataset(Dataset):
@@ -83,6 +84,36 @@ def test_cached_regression_records_physical_rmse(tmp_path: Path) -> None:
     assert result["method"] == "reg-fpn"
     assert result["metric_name"] == "RMSE"
     assert result["metric_value"] == 30.0
+
+
+def test_uncached_regression_trains_from_images(tmp_path: Path) -> None:
+    output = tmp_path / "out.csv"
+    cfg = _config(output, {"segmentation": {"cache_features": False}})
+    probe = mock.Mock(channels_list=[16, 32], freeze_backbone=True)
+    solver = mock.Mock()
+    solver.evaluate.return_value = ({"RMSE": 30.0}, torch.tensor([20.0, 40.0]))
+
+    with (
+        mock.patch("torchgeo_bench.main.get_datasets", return_value=_loaders()),
+        mock.patch(
+            "torchgeo_bench.main.instantiate_dataset_model",
+            return_value=_chainable_model_mock(),
+        ),
+        mock.patch(
+            "torchgeo_bench.pixelwise_regression_task.build_pixelwise_regression_probe_and_solver",
+            return_value=(probe, solver),
+        ),
+    ):
+        main(cfg)
+
+    solver.fit.assert_called_once()
+    solver.evaluate.assert_called_once()
+    assert pd.read_csv(output).iloc[0]["best_batch_size"] == 2
+
+
+def test_dense_task_rejects_unknown_task() -> None:
+    with pytest.raises(ValueError, match="Unsupported dense task"):
+        list(run_dense_task("unknown", mock.Mock(), mock.Mock(), mock.Mock(), mock.Mock(), 1.0))
 
 
 def test_regression_resume_skips_complete_run(tmp_path: Path) -> None:

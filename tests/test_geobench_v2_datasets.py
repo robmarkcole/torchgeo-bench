@@ -135,6 +135,7 @@ class TestV2Loading:
         _, train_dl, _ = get_datasets(
             dataset_name="biomassters",
             image_size=64,
+            time_steps=3,
             batch_size=2,
             return_val=False,
             num_workers=0,
@@ -146,6 +147,8 @@ class TestV2Loading:
         assert batch["mask"].shape == (2, 64, 64)
         assert batch["mask"].dtype == torch.float32
         assert 0 < batch["mask"][0, 1, 1] < batch["mask"][0, 2, 2]
+        for call in mock_v2_env["biomassters"].call_args_list:
+            assert call.kwargs["num_time_steps"] == 3
 
     def test_biomassters_time_series_is_time_first(self) -> None:
         sample = BioMassters().finalize_sample({"image": torch.zeros(6, 3, 8, 8)})
