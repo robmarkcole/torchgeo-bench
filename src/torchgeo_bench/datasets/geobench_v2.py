@@ -18,6 +18,7 @@ V2_ROOT = Path("data/geobenchv2")
 
 _V2_REGISTRY: dict[str, str] = {
     "benv2": "GeoBenchBENV2",
+    "biomassters": "GeoBenchBioMassters",
     "burn_scars": "GeoBenchBurnScars",
     "caffe": "GeoBenchCaFFe",
     "cloudsen12": "GeoBenchCloudSen12",
@@ -82,7 +83,7 @@ class GeoBenchv2(Dataset):
         **kwargs: Additional keyword arguments forwarded to the upstream class.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - upstream adapter options.
         self,
         root: str | Path,
         dataset_name: str,
@@ -90,6 +91,7 @@ class GeoBenchv2(Dataset):
         *,
         band_order: object | None = None,
         transforms: Callable | None = None,
+        output_transform: Callable | None = None,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -122,12 +124,14 @@ class GeoBenchv2(Dataset):
         self._inner: Dataset = cls(**forward)
         self.dataset_name = dataset_name
         self.split = split
+        self.output_transform = output_transform
 
     def __len__(self) -> int:
         return len(self._inner)  # type: ignore[arg-type]
 
     def __getitem__(self, index: int) -> dict:
-        return self._inner[index]
+        sample = self._inner[index]
+        return self.output_transform(sample) if self.output_transform is not None else sample
 
 
 class _V2Dataset(BenchDataset):
@@ -169,6 +173,10 @@ class _V2Dataset(BenchDataset):
         """
         return sample
 
+    def finalize_sample(self, sample: dict) -> dict:
+        """Adapt the complete upstream output before returning it to the benchmark."""
+        return sample
+
     def get_dataset(
         self,
         split: str,
@@ -205,6 +213,7 @@ class _V2Dataset(BenchDataset):
             split=split,
             band_order=band_order,
             transforms=_ChainedTransform(self.canonicalize_sample, transform),
+            output_transform=self.finalize_sample,
             **kwargs,
         )
 

@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 
 from tests.support.data import require_dataset_data
 from torchgeo_bench.datasets import get_bench_dataset_class, get_datasets
+from torchgeo_bench.datasets.biomassters import BioMassters
 from torchgeo_bench.datasets.burn_scars import BurnScars
 from torchgeo_bench.datasets.pastis import PASTIS
 
@@ -47,6 +48,8 @@ class MockV2Dataset:
         sample = {"image": image}
         if self.root.name == "burn_scars":
             sample["mask"] = torch.arange(self.h * self.w).reshape(self.h, self.w) % 2
+        elif self.root.name == "biomassters":
+            sample["mask"] = torch.linspace(0, 1, self.h * self.w).reshape(self.h, self.w)
         else:
             sample["label"] = torch.tensor(idx % 2)
         return self.transforms(sample) if self.transforms is not None else sample
@@ -55,7 +58,11 @@ class MockV2Dataset:
 @pytest.fixture
 def mock_v2_env(monkeypatch: pytest.MonkeyPatch) -> dict[str, MagicMock]:
     upstream = {}
-    for dataset, name in {"benv2": "GeoBenchBENV2", "burn_scars": "GeoBenchBurnScars"}.items():
+    for dataset, name in {
+        "benv2": "GeoBenchBENV2",
+        "biomassters": "GeoBenchBioMassters",
+        "burn_scars": "GeoBenchBurnScars",
+    }.items():
         upstream[dataset] = MagicMock(side_effect=MockV2Dataset)
         monkeypatch.setattr(f"geobench_v2.datasets.{name}", upstream[dataset])
     return upstream
@@ -123,6 +130,26 @@ class TestV2Loading:
         assert batch["image"].shape == (2, 3, 32, 32)
         assert batch["mask"].shape == (2, 32, 32)
         assert batch["mask"].dtype == torch.long
+
+    def test_biomassters_pixelwise_regression(self, mock_v2_env: dict[str, MagicMock]) -> None:
+        _, train_dl, _ = get_datasets(
+            dataset_name="biomassters",
+            image_size=64,
+            batch_size=2,
+            return_val=False,
+            num_workers=0,
+        )
+
+        assert get_bench_dataset_class("biomassters").task == "pixelwise_regression"
+        batch = next(iter(train_dl))
+        assert batch["image"].shape == (2, 3, 64, 64)
+        assert batch["mask"].shape == (2, 64, 64)
+        assert batch["mask"].dtype == torch.float32
+        assert 0 < batch["mask"][0, 1, 1] < batch["mask"][0, 2, 2]
+
+    def test_biomassters_time_series_is_time_first(self) -> None:
+        sample = BioMassters().finalize_sample({"image": torch.zeros(6, 3, 8, 8)})
+        assert sample["image"].shape == (3, 6, 8, 8)
 
     def test_partition_warning(self, mock_v2_env: dict[str, MagicMock]) -> None:
         with pytest.warns(UserWarning, match="does not support custom partitions"):
