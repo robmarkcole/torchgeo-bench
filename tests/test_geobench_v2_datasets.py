@@ -30,6 +30,7 @@ class MockV2Dataset:
         self.split = split
         self.transforms = transforms
         self.band_order = band_order
+        self.num_time_steps = int(kwargs.get("num_time_steps", 1))
 
         if isinstance(band_order, dict):
             self.c = sum(len(v) for v in band_order.values())
@@ -42,14 +43,38 @@ class MockV2Dataset:
     def __len__(self) -> int:
         return 10
 
+    def _biomassters_sample(self) -> dict[str, torch.Tensor]:
+        """Match upstream modality transforms and ``(C, T, H, W)`` stacking."""
+        assert isinstance(self.band_order, dict)
+        sample: dict[str, torch.Tensor] = {
+            "mask": torch.linspace(0, 1, self.h * self.w).reshape(self.h, self.w)
+        }
+        channel = 1
+        for sensor, bands in self.band_order.items():
+            values = torch.arange(channel, channel + len(bands), dtype=torch.float32) * 1000
+            image = values[:, None, None].expand(len(bands), self.h, self.w).clone()
+            if self.num_time_steps > 1:
+                image = image.unsqueeze(0).expand(self.num_time_steps, -1, -1, -1).clone()
+            sample[f"image_{sensor}"] = image
+            channel += len(bands)
+        if self.transforms is not None:
+            sample = self.transforms(sample)
+        modalities = []
+        for sensor in self.band_order:
+            image = sample[f"image_{sensor}"]
+            if image.ndim == 4:
+                image = image.permute(1, 0, 2, 3)
+            modalities.append(image)
+        return {"image": torch.cat(modalities), "mask": sample["mask"]}
+
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
+        if self.root.name == "biomassters":
+            return self._biomassters_sample()
         channels = torch.arange(1, self.c + 1, dtype=torch.float32) * 1000
         image = channels[:, None, None].expand(self.c, self.h, self.w).clone()
         sample = {"image": image}
         if self.root.name == "burn_scars":
             sample["mask"] = torch.arange(self.h * self.w).reshape(self.h, self.w) % 2
-        elif self.root.name == "biomassters":
-            sample["mask"] = torch.linspace(0, 1, self.h * self.w).reshape(self.h, self.w)
         else:
             sample["label"] = torch.tensor(idx % 2)
         return self.transforms(sample) if self.transforms is not None else sample
@@ -143,7 +168,7 @@ class TestV2Loading:
 
         assert get_bench_dataset_class("biomassters").task == "pixelwise_regression"
         batch = next(iter(train_dl))
-        assert batch["image"].shape == (2, 3, 64, 64)
+        assert batch["image"].shape == (2, 3, 3, 64, 64)
         assert batch["mask"].shape == (2, 64, 64)
         assert batch["mask"].dtype == torch.float32
         assert 0 < batch["mask"][0, 1, 1] < batch["mask"][0, 2, 2]
