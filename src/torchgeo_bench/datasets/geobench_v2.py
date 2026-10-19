@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import ClassVar, Literal
 
@@ -166,6 +167,20 @@ class _V2Dataset(BenchDataset):
             return grouped
         return [spec.source_name for spec in specs]
 
+    def _channel_permutation(self, bands: tuple[str, ...] | None) -> tuple[int, ...]:
+        """Map the sensor-grouped upstream stack back to the requested band order."""
+        specs = self.select_band_specs(bands)
+        if self.band_order_strategy != "by_sensor":
+            return tuple(range(len(specs)))
+        sensor_order = list(dict.fromkeys(spec.sensor for spec in specs))
+        grouped_indices = [
+            index
+            for sensor in sensor_order
+            for index, spec in enumerate(specs)
+            if spec.sensor == sensor
+        ]
+        return tuple(grouped_indices.index(index) for index in range(len(specs)))
+
     def canonicalize_sample(self, sample: dict) -> dict:
         """Adapt an upstream sample to ``image`` and ``label``/``mask`` keys.
 
@@ -176,6 +191,23 @@ class _V2Dataset(BenchDataset):
     def finalize_sample(self, sample: dict) -> dict:
         """Adapt the complete upstream output before returning it to the benchmark."""
         return sample
+
+    def _finalize_and_reorder(self, sample: dict, *, channel_permutation: tuple[int, ...]) -> dict:
+        """Finalize a sample and restore the explicitly requested channel order."""
+        sample = self.finalize_sample(sample)
+        identity = tuple(range(len(channel_permutation)))
+        if channel_permutation != identity:
+            image: torch.Tensor = sample["image"]
+            indices = torch.tensor(channel_permutation, device=image.device)
+            sample["image"] = image.index_select(-3, indices)
+        return sample
+
+    def output_transform(self, bands: tuple[str, ...] | None) -> Callable[[dict], dict]:
+        """Return finalization with sensor-grouped channels restored to requested order."""
+        return partial(
+            self._finalize_and_reorder,
+            channel_permutation=self._channel_permutation(bands),
+        )
 
     def get_dataset(
         self,
@@ -213,7 +245,7 @@ class _V2Dataset(BenchDataset):
             split=split,
             band_order=band_order,
             transforms=_ChainedTransform(self.canonicalize_sample, transform),
-            output_transform=self.finalize_sample,
+            output_transform=self.output_transform(bands),
             **kwargs,
         )
 

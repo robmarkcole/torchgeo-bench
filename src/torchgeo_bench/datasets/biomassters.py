@@ -74,6 +74,6 @@ class BioMassters(_V2Dataset):
             split=split,
             band_order=self.build_band_order(bands),
             transforms=_ChainedTransform(self.canonicalize_sample, transform),
-            output_transform=self.finalize_sample,
+            output_transform=self.output_transform(bands),
             **kwargs,
         )

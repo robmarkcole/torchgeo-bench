@@ -154,6 +154,24 @@ class TestV2Loading:
         sample = BioMassters().finalize_sample({"image": torch.zeros(6, 3, 8, 8)})
         assert sample["image"].shape == (3, 6, 8, 8)
 
+    def test_interleaved_sensor_selection_preserves_requested_order(
+        self, mock_v2_env: dict[str, MagicMock]
+    ) -> None:
+        dataset, _, _ = get_datasets(
+            dataset_name="biomassters",
+            bands=["b04", "vv_asc", "b03"],
+            batch_size=2,
+            num_workers=0,
+        )
+
+        assert mock_v2_env["biomassters"].call_args.kwargs["band_order"] == {
+            "s2": ["B04", "B03"],
+            "s1": ["VV_asc"],
+        }
+        torch.testing.assert_close(
+            dataset[0]["image"][:, 0, 0], torch.tensor([1000.0, 3000.0, 2000.0])
+        )
+
     def test_partition_warning(self, mock_v2_env: dict[str, MagicMock]) -> None:
         with pytest.warns(UserWarning, match="does not support custom partitions"):
             get_datasets(
