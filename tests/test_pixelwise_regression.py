@@ -53,6 +53,7 @@ def test_fit_trains_on_images_and_reports_validation_rmse() -> None:
     solver = PixelwiseRegressionSolver(
         _FixedProbe(), target_scale=1.0, lr=0.1, device="cpu", lr_scheduler="cosine"
     )
+    assert solver.optimizer.param_groups[0]["weight_decay"] == 0.0
 
     val_rmse = solver.fit(loader, val_loader=loader, epochs=2, verbose=True)
 

@@ -44,7 +44,9 @@ class PixelwiseRegressionSolver:
         self.device_type = torch.device(device).type
         self.lr_scheduler_type = lr_scheduler
         self.optimizer = torch.optim.AdamW(
-            filter(lambda parameter: parameter.requires_grad, self.model.parameters()), lr=lr
+            filter(lambda parameter: parameter.requires_grad, self.model.parameters()),
+            lr=lr,
+            weight_decay=0.0,
         )
         self.criterion = nn.MSELoss()
         self.use_amp = device.startswith("cuda") and torch.cuda.is_available()
