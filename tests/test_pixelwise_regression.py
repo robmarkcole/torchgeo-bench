@@ -70,7 +70,7 @@ def test_cached_targets_remain_float_for_regression() -> None:
     for parameter in probe.head.parameters():
         nn.init.zeros_(parameter)
     images = torch.zeros(2, 1, 8, 8)
-    targets = torch.stack([torch.ones(8, 8), torch.full((8, 8), 2.0)])
+    targets = torch.stack([torch.full((8, 8), 0.25), torch.full((8, 8), 1.75)])
     cache = probe.extract_segmentation_features(
         DataLoader(TensorDataset(images, targets), batch_size=2),
         cache_dtype=torch.float32,
@@ -79,8 +79,8 @@ def test_cached_targets_remain_float_for_regression() -> None:
 
     assert cache.masks.dtype == torch.float32
     metrics, per_image = solver.evaluate_cached(cache, batch_size=2)
-    torch.testing.assert_close(per_image, torch.tensor([10.0, 20.0]))
-    assert metrics["RMSE"] == pytest.approx(15.0)
+    torch.testing.assert_close(per_image, torch.tensor([2.5, 17.5]))
+    assert metrics["RMSE"] == pytest.approx(10.0)
 
     val_rmse = solver.fit_cached(cache, val_cache=cache, batch_size=2, epochs=1, verbose=True)
     assert val_rmse is not None
